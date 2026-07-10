@@ -15,6 +15,29 @@ const state = {
 
 function init() {
  const editor = $('editor');
+  // === ЗАВАНТАЖЕННЯ API КЛЮЧА ===
+  const apiKeyInput = $('apiKey'); // <-- Если у тебя input называется по-другому, замени 'apiKey' на правильный id
+  if (apiKeyInput) {
+    const loadKey = () => {
+      state.creds.groqApiKey = apiKeyInput.value;
+    };
+    apiKeyInput.addEventListener('input', loadKey);
+    
+    // Загрузка из localStorage, если ключ сохранялся
+    const savedKey = localStorage.getItem('groqApiKey');
+    if (savedKey) {
+      apiKeyInput.value = savedKey;
+      state.creds.groqApiKey = savedKey;
+    } else {
+      loadKey(); // Загрузить из input, если в localStorage нет
+    }
+    
+    // Сохранение в localStorage при изменении
+    apiKeyInput.addEventListener('change', () => {
+      localStorage.setItem('groqApiKey', apiKeyInput.value);
+    });
+  }
+ 
  state.text = editor.innerText || '';
  
  // === ПЕРЕХВАТ ВСТАВКИ (PASTE) ===
