@@ -1,5 +1,4 @@
-// app.js — Адаптований під РЕАЛЬНИЙ index.html (textlab2)
-// ID: apiKey, validateBtn, provider, modelSelect, seoKeywords, seedKeyword, analyzeBtn, cancelBtn, clearBtn, editor, metrics, docRender, inspContent, pinBtn, simQuery, simBtn
+// app.js — Финальная версия с защитой от ошибок рендеринга
 
 const $ = id => document.getElementById(id);
 const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -15,7 +14,6 @@ const state = {
   creds: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
 };
 
-// === КОНФІГУРАЦІЯ МЕТРИК ===
 const METRICS_CONFIG = {
   aiScore: { label: 'AI Score', unit: '%', direction: 'low', good: 35, warn: 60 },
   burstinessScore: { label: 'Ритм', unit: '', direction: 'high', good: 55, warn: 35 },
@@ -30,6 +28,7 @@ const HIGHLIGHT_CONFIG = {
   predictable: { color: '#6cb6ff', label: 'Штампи' },
   citation: { color: '#4dd0a7', label: 'Цінне' },
   logic_flaw: { color: '#f0883e', label: 'Логіка' },
+  low_relevance: { color: '#db6d6d', label: 'Нерелевантне' },
   pinned: { color: '#2f7a63', label: 'Закріплено' },
 };
 
@@ -37,28 +36,22 @@ function init() {
   console.log('🚀 TextLab Init...');
   
   try {
-    // 1. РЕДАКТОР
     const editor = $('editor');
-    if (!editor) throw new Error('#editor not found');
+    if (!editor) { console.error('❌ #editor not found'); return; }
     state.text = editor.innerText || '';
 
-    // 2. API КЛЮЧ (ID: apiKey)
+    // API Key
     const apiKeyInput = $('apiKey');
     if (apiKeyInput) {
       const savedKey = localStorage.getItem('apiKey');
-      if (savedKey) {
-        apiKeyInput.value = savedKey;
-        state.creds.apiKey = savedKey;
-      }
-      
+      if (savedKey) { apiKeyInput.value = savedKey; state.creds.apiKey = savedKey; }
       apiKeyInput.addEventListener('input', () => {
         state.creds.apiKey = apiKeyInput.value.trim();
         localStorage.setItem('apiKey', apiKeyInput.value.trim());
       });
-      console.log('✅ API Key bound');
     }
 
-    // 3. ПРОВАЙДЕР (ID: provider)
+    // Provider
     const providerSelect = $('provider');
     if (providerSelect) {
       state.creds.provider = providerSelect.value;
@@ -68,23 +61,20 @@ function init() {
       });
     }
 
-    // 4. МОДЕЛЬ (ID: modelSelect)
+    // Model
+    updateModelSelect();
     const modelSelect = $('modelSelect');
     if (modelSelect) {
-      updateModelSelect();
-      modelSelect.addEventListener('change', () => {
-        state.creds.model = modelSelect.value;
-      });
+      modelSelect.addEventListener('change', () => { state.creds.model = modelSelect.value; });
     }
 
-    // 5. КНОПКА ПЕРЕВІРКИ (ID: validateBtn)
+    // Validate button
     const validateBtn = $('validateBtn');
     if (validateBtn) {
       validateBtn.addEventListener('click', async () => {
         validateBtn.disabled = true;
         const status = $('validateStatus');
         if (status) status.innerText = 'Перевірка...';
-        
         try {
           const res = await fetch('/api/validate', {
             method: 'POST',
@@ -92,16 +82,13 @@ function init() {
             body: JSON.stringify({ creds: state.creds })
           });
           const data = await res.json();
-          if (status) status.innerText = data.valid ? '✅ OK' : '❌ ' + (data.error || 'Error');
-        } catch (e) {
-          if (status) status.innerText = '❌ Network Error';
-        } finally {
-          validateBtn.disabled = false;
-        }
+          if (status) status.innerText = data.ok ? `✅ OK (${data.latencyMs}ms)` : '❌ ' + (data.error || 'Error');
+        } catch (e) { if (status) status.innerText = '❌ Network Error'; }
+        finally { validateBtn.disabled = false; }
       });
     }
 
-    // 6. SEO КЛЮЧІ (ID: seoKeywords)
+    // SEO Keywords
     const seoInput = $('seoKeywords');
     if (seoInput) {
       seoInput.addEventListener('input', (e) => {
@@ -109,21 +96,18 @@ function init() {
       });
     }
 
-    // 7. SEED KEYWORD (ID: seedKeyword)
+    // Seed Keyword
     const seedInput = $('seedKeyword');
     if (seedInput) {
-      seedInput.addEventListener('input', (e) => {
-        state.seedKeyword = e.target.value.trim();
-      });
+      seedInput.addEventListener('input', (e) => { state.seedKeyword = e.target.value.trim(); });
     }
 
-    // 8. ТАБИ (class="tab" з data-tab)
+    // Tabs
     const tabs = document.querySelectorAll('.tab');
     tabs.forEach(tab => {
       tab.addEventListener('click', () => {
         tabs.forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
-        
         const targetTab = tab.dataset.tab;
         document.querySelectorAll('section[id^="tab-"]').forEach(s => s.style.display = 'none');
         const targetSection = $('tab-' + targetTab);
@@ -131,7 +115,7 @@ function init() {
       });
     });
 
-    // 9. ГОЛОВНІ КНОПКИ
+    // Main buttons
     const analyzeBtn = $('analyzeBtn');
     if (analyzeBtn) analyzeBtn.addEventListener('click', runAnalysis);
     
@@ -147,19 +131,11 @@ function init() {
       });
     }
 
-    // 10. СИМУЛЯЦІЯ (ID: simQuery, simBtn)
-    const simBtn = $('simBtn');
-    if (simBtn) {
-      simBtn.addEventListener('click', runSimulation);
-    }
-
-    // 11. ЗАКРІПЛЕННЯ (ID: pinBtn)
+    // Pin button
     const pinBtn = $('pinBtn');
-    if (pinBtn) {
-      pinBtn.addEventListener('click', togglePin);
-    }
+    if (pinBtn) pinBtn.addEventListener('click', togglePin);
 
-    // 12. ВСТАВКА ТЕКСТУ
+    // Paste handler
     editor.addEventListener('paste', (e) => {
       e.preventDefault();
       const html = e.clipboardData.getData('text/html');
@@ -189,7 +165,7 @@ function init() {
 
     editor.addEventListener('input', () => { state.text = editor.innerText; });
 
-    // Тулбар редактора
+    // Toolbar
     document.querySelectorAll('.tb-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const cmd = btn.dataset.cmd;
@@ -204,12 +180,12 @@ function init() {
     });
 
     renderMap();
+    renderMetrics();
     renderInspector();
     console.log('🏁 Init Done');
 
   } catch (err) {
     console.error('💥 INIT ERROR:', err);
-    alert('Error: ' + err.message);
   }
 }
 
@@ -234,7 +210,13 @@ function updateModelSelect() {
 async function runAnalysis() {
   const btn = $('analyzeBtn');
   if (!btn) return;
-  btn.disabled = true; btn.innerText = 'Аналіз...';
+  
+  const apiKeyInput = $('apiKey');
+  if (apiKeyInput) state.creds.apiKey = apiKeyInput.value.trim();
+  
+  console.log('📤 Sending analysis request...');
+  btn.disabled = true; 
+  btn.innerText = 'Аналіз...';
   
   try {
     const res = await fetch('/api/analyze', {
@@ -248,46 +230,20 @@ async function runAnalysis() {
       })
     });
     
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     
     state.analysis = await res.json();
-    renderMap();
+    console.log('✅ Analysis complete:', state.analysis);
+    
     renderMetrics();
+    renderMap();
     renderInspector();
   } catch (e) { 
+    console.error('❌ Analysis Error:', e);
     alert('Error: ' + e.message); 
   } finally { 
     btn.disabled = false; 
     btn.innerText = 'Проаналізувати'; 
-  }
-}
-
-async function runSimulation() {
-  const query = $('simQuery')?.value.trim();
-  if (!query) return alert('Введіть запит');
-  if (!state.analysis) return alert('Спочатку проаналізуйте текст');
-  
-  const btn = $('simBtn');
-  if (btn) { btn.disabled = true; btn.innerText = 'Симуляція...'; }
-  
-  try {
-    const res = await fetch('/api/simulate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        text: state.text, 
-        query,
-        creds: state.creds 
-      })
-    });
-    
-    const data = await res.json();
-    const result = $('simResult');
-    if (result) result.innerHTML = `<pre>${esc(JSON.stringify(data, null, 2))}</pre>`;
-  } catch (e) { 
-    alert('Error: ' + e.message); 
-  } finally { 
-    if (btn) { btn.disabled = false; btn.innerText = 'Перевірити у ШІ-пошуку'; }
   }
 }
 
@@ -304,15 +260,11 @@ function selectSegment(id) {
   state.selectedId = id;
   document.querySelectorAll('.seg').forEach(el => el.classList.toggle('selected', el.dataset.id === id));
   renderInspector();
-  
-  // Показати попап закріплення
-  const pop = $('selPop');
-  if (pop) pop.style.display = 'block';
 }
 
 function renderMetrics() {
   const container = $('metrics');
-  if (!container) return;
+  if (!container) { console.warn('⚠️ #metrics not found'); return; }
   if (!state.analysis) { container.innerHTML = ''; return; }
   
   const d = state.analysis;
@@ -340,11 +292,12 @@ function renderMetrics() {
   }
   
   container.innerHTML = html;
+  console.log('✅ Metrics rendered');
 }
 
 function renderMap() {
   const container = $('docRender');
-  if (!container) return;
+  if (!container) { console.warn('⚠️ #docRender not found'); return; }
   if (!state.analysis) { container.innerHTML = ''; return; }
   
   const { segments, highlights } = state.analysis;
@@ -375,45 +328,12 @@ function renderMap() {
     el.addEventListener('click', () => selectSegment(el.dataset.id));
   });
   
-  // Рендер фільтрів
-  renderFilters();
-}
-
-function renderFilters() {
-  const filterRow = $('filterRow');
-  if (!filterRow || !state.analysis) return;
-  
-  const counts = { all: 0, ai: 0, rhythm: 0, predictable: 0, citation: 0, logic_flaw: 0, pinned: state.pins.length };
-  (state.analysis.highlights || []).forEach(h => {
-    if (counts[h.type] !== undefined) counts[h.type]++;
-    counts.all++;
-  });
-  
-  let html = '';
-  for (const [type, meta] of Object.entries(HIGHLIGHT_CONFIG)) {
-    const count = counts[type] || 0;
-    const isActive = state.filter === type ? 'active' : '';
-    html += `<div class="filter-item ${isActive}" data-type="${type}" style="border-left: 3px solid ${meta.color}; cursor: pointer;">
-      ${meta.label} (${count})
-    </div>`;
-  }
-  
-  // Додати "Всі"
-  html = `<div class="filter-item ${state.filter === 'all' ? 'active' : ''}" data-type="all" style="border-left: 3px solid #8b949e; cursor: pointer;">Всі (${counts.all})</div>` + html;
-  
-  filterRow.innerHTML = html;
-  
-  filterRow.querySelectorAll('.filter-item').forEach(el => {
-    el.addEventListener('click', () => {
-      state.filter = el.dataset.type;
-      renderMap();
-    });
-  });
+  console.log('✅ Map rendered');
 }
 
 function renderInspector() {
   const container = $('inspContent');
-  if (!container) return;
+  if (!container) { console.warn('⚠️ #inspContent not found'); return; }
   if (!state.analysis) { container.innerHTML = ''; return; }
   
   const d = state.analysis;
@@ -445,6 +365,7 @@ function renderInspector() {
   }
   
   container.innerHTML = html;
+  console.log('✅ Inspector rendered');
 }
 
 document.addEventListener('DOMContentLoaded', init);
