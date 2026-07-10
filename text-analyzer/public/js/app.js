@@ -182,21 +182,30 @@ function renderLegend() { $('legend').innerHTML = Object.values(HL()).map(v => `
 
 // ── Карта (по offset) ─────────────────────────────────────────────
 function renderMap() {
-  if (!state.analysis) { $('docRender').innerHTML = '<span style="color:var(--ink-faint)">Немає даних.</span>'; return; }
-  const { segments, highlights } = state.analysis;
-  const hlMap = {}; (highlights || []).forEach(h => hlMap[h.id] = h);
-  let html = ''; let cursor = 0; const text = state.text;
-  for (const seg of segments) {
-    if (seg.startOffset > cursor) html += esc(text.slice(cursor, seg.startOffset));
-    const h = hlMap[seg.id];
-    let type = h && h.type && h.type !== 'clean' ? h.type : '';
-    if (state.filter !== 'all' && type !== state.filter) type = '';
-    html += `<span class="seg ${type}" data-id="${seg.id}">${esc(text.slice(seg.startOffset, seg.endOffset))}</span>`;
-    cursor = seg.endOffset;
-  }
-  if (cursor < text.length) html += esc(text.slice(cursor));
-  $('docRender').innerHTML = html;
-  document.querySelectorAll('.seg').forEach(el => el.addEventListener('click', () => selectSegment(el.dataset.id)));
+ if (!state.analysis) { $('docRender').innerHTML = 'Немає даних.'; return; }
+ const { segments, highlights } = state.analysis;
+ const hlMap = {}; (highlights || []).forEach(h => hlMap[h.id] = h);
+ let html = ''; let cursor = 0; const text = state.text;
+ 
+ for (const seg of segments) {
+   if (seg.startOffset > cursor) html += esc(text.slice(cursor, seg.startOffset));
+   const h = hlMap[seg.id];
+   let type = h && h.type && h.type !== 'clean' ? h.type : '';
+   if (state.filter !== 'all' && type !== state.filter) type = '';
+   
+   // === ДОДАВАННЯ ПІДКАЗКИ ПРИ НАВЕДЕННІ ===
+   let tooltipText = '';
+   if (h && h.type !== 'clean') {
+     const meta = HL()[h.type] || {};
+     tooltipText = (meta.label || h.type) + ': ' + (h.details || meta.desc || '');
+   }
+   
+   html += `<span class="seg ${type}" data-id="${seg.id}" title="${esc(tooltipText)}">${esc(text.slice(seg.startOffset, seg.endOffset))}</span>`;
+   cursor = seg.endOffset;
+ }
+ if (cursor < text.length) html += esc(text.slice(cursor));
+ $('docRender').innerHTML = html;
+ document.querySelectorAll('.seg').forEach(el => el.addEventListener('click', () => selectSegment(el.dataset.id)));
 }
 
 // ── Інспектор сегмента ────────────────────────────────────────────
@@ -318,14 +327,55 @@ $('pinBtn').addEventListener('click', () => {
 
 // ── Оглядовий інспектор ───────────────────────────────────────────
 function renderInspectorOverview(d) {
-  $('inspEmpty').style.display = 'none';
-  let html = '';
-  if (d.aiFingerprints && d.aiFingerprints.length) html += `<div class="card"><h3>ШІ-маркери</h3>` + d.aiFingerprints.map(f => `<div class="fp"><span class="fp-name">${esc(f.marker)}</span><span class="fp-sev ${f.severity}">${f.severity}</span></div>`).join('') + `</div>`;
-  if (d.queryCoverage && (d.queryCoverage.covered?.length || d.queryCoverage.missing?.length)) html += `<div class="card"><h3>Query Fan-Out</h3>${(d.queryCoverage.covered||[]).map(q=>`<span class="chip have">✓ ${esc(q)}</span>`).join('')}${(d.queryCoverage.missing||[]).map(q=>`<span class="chip miss">+ ${esc(q)}</span>`).join('')}</div>`;
-  if (d.entities && d.entities.missing?.length) html += `<div class="card"><h3>Бракує сутностей</h3>${d.entities.missing.map(e=>`<span class="chip miss">${esc(e)}</span>`).join('')}</div>`;
-  if (d.aiCitationSnippets && d.aiCitationSnippets.length) html += `<div class="card"><h3>Готові сніпети для цитування</h3>` + d.aiCitationSnippets.map(s=>`<div class="suggestion">${esc(s)}</div>`).join('') + `</div>`;
-  if (d.recommendations && d.recommendations.length) html += `<div class="card"><h3>Рекомендації</h3>` + d.recommendations.map(r => { const imp = r.expectedImpact ? Object.entries(r.expectedImpact).map(([k,v])=>`${k} ${v}`).join(' · ') : ''; return `<div class="rec ${r.priority||''}"><div class="rec-title">${esc(r.title||'')}</div><div style="font-size:12px;color:var(--ink-dim);margin-top:2px">${esc(r.description||'')}</div>${imp?`<div class="rec-impact">${esc(imp)}</div>`:''}</div>`; }).join('') + `</div>`;
-  $('inspContent').innerHTML = html || '<div class="insp-empty">Аналіз завершено, критичних зауважень немає.</div>';
+ $('inspEmpty').style.display = 'none';
+ let html = '';
+ 
+ if (d.aiFingerprints && d.aiFingerprints.length) {
+   html += `<h3>ШІ-маркери</h3>` + d.aiFingerprints.map(f => {
+     // === МАПІНГ МАРКЕРІВ НА ТИПИ ПІДСВІТКИ ДЛЯ КЛІКАБЕЛЬНОСТІ ===
+     let hlType = 'ai';
+     if (f.marker.includes('Burstiness')) hlType = 'rhythm';
+     else if (f.marker.includes('Predictable')) hlType = 'predictable';
+     else if (f.marker.includes('Passive')) hlType = 'ai';
+     else if (f.marker.includes('Transition')) hlType = 'ai';
+     
+     return `<span class="fingerprint clickable" data-hl="${hlType}" style="cursor:pointer; text-decoration:underline;">${esc(f.marker)} <span class="severity">${f.severity}</span></span>`;
+   }).join('') + `<div class="clear"></div>`;
+ }
+ 
+ if (d.queryCoverage && (d.queryCoverage.covered?.length || d.queryCoverage.missing?.length)) html += `
+ <h3>Query Fan-Out</h3>
+ ${(d.queryCoverage.covered||[]).map(q=>`<div>✓ ${esc(q)}</div>`).join('')}
+ ${(d.queryCoverage.missing||[]).map(q=>`<div>+ ${esc(q)}</div>`).join('')}
+ `;
+ 
+ if (d.entities && d.entities.missing?.length) html += `
+ <h3>Бракує сутностей</h3>
+ ${d.entities.missing.map(e=>`<div>${esc(e)}</div>`).join('')}
+ `;
+ 
+ if (d.aiCitationSnippets && d.aiCitationSnippets.length) html += `
+ <h3>Готові сніпети для цитування</h3>
+ ` + d.aiCitationSnippets.map(s=>`<div class="snippet">"${esc(s)}"</div>`).join('') + `
+ `;
+ 
+ if (d.recommendations && d.recommendations.length) html += `
+ <h3>Рекомендації</h3>
+ ` + d.recommendations.map(r => { 
+   const imp = r.expectedImpact ? Object.entries(r.expectedImpact).map(([k,v])=>`${k} ${v}`).join(' · ') : ''; 
+   return `<div class="rec"><strong>${esc(r.title||'')}</strong><div>${esc(r.description||'')}</div>${imp?`<div class="impact">${esc(imp)}</div>`:''}</div>`; 
+ }).join('') + `
+ `;
+ 
+ $('inspContent').innerHTML = html || '<p>Аналіз завершено, критичних зауважень немає.</p>';
+
+ // === ОБРОБКА КЛІКІВ ПО ШІ-МАРКЕРАХ ===
+ document.querySelectorAll('.fingerprint.clickable').forEach(el => {
+   el.addEventListener('click', () => {
+     state.filter = el.dataset.hl;
+     document.querySelector('.tab[data-tab="render"]').click();
+   });
+ });
 }
 
 // ── Лічильник лімітів ─────────────────────────────────────────────
