@@ -1,4 +1,4 @@
-// app.js — Финальная версия под textlab2 HTML
+// app.js — Минимальная рабочая версия
 
 const $ = id => document.getElementById(id);
 const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -14,7 +14,6 @@ const state = {
   creds: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
 };
 
-// Используем конфигурацию из metrics-meta.js если доступна
 const METRICS_CONFIG = window.METRICS_META || {
   aiScore: { label: 'AI Score', unit: '%', direction: 'low', good: 35, warn: 60 },
   burstinessScore: { label: 'Ритм', unit: '', direction: 'high', good: 55, warn: 35 },
@@ -34,13 +33,10 @@ const HIGHLIGHT_CONFIG = window.HIGHLIGHT_META || {
 };
 
 function init() {
-  console.log('🚀 TextLab Init...');
-  
   const editor = $('editor');
-  if (!editor) { console.error('❌ #editor not found'); return; }
+  if (!editor) return;
   state.text = editor.innerText || '';
 
-  // API Key
   const apiKeyInput = $('apiKey');
   if (apiKeyInput) {
     const savedKey = localStorage.getItem('apiKey');
@@ -51,7 +47,6 @@ function init() {
     });
   }
 
-  // Provider
   const providerSelect = $('provider');
   if (providerSelect) {
     state.creds.provider = providerSelect.value;
@@ -61,14 +56,12 @@ function init() {
     });
   }
 
-  // Model
   if (window.updateModelSelect) window.updateModelSelect();
   const modelSelect = $('modelSelect');
   if (modelSelect) {
     modelSelect.addEventListener('change', () => { state.creds.model = modelSelect.value; });
   }
 
-  // Validate button
   const validateBtn = $('validateBtn');
   if (validateBtn) {
     validateBtn.addEventListener('click', async () => {
@@ -88,7 +81,6 @@ function init() {
     });
   }
 
-  // SEO Keywords
   const seoInput = $('seoKeywords');
   if (seoInput) {
     seoInput.addEventListener('input', (e) => {
@@ -96,13 +88,11 @@ function init() {
     });
   }
 
-  // Seed Keyword
   const seedInput = $('seedKeyword');
   if (seedInput) {
     seedInput.addEventListener('input', (e) => { state.seedKeyword = e.target.value.trim(); });
   }
 
-  // Tabs
   const tabs = document.querySelectorAll('.tab');
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -115,7 +105,6 @@ function init() {
     });
   });
 
-  // Main buttons
   const analyzeBtn = $('analyzeBtn');
   if (analyzeBtn) analyzeBtn.addEventListener('click', runAnalysis);
   
@@ -131,15 +120,12 @@ function init() {
     });
   }
 
-  // Pin button
   const pinBtn = $('pinBtn');
   if (pinBtn) pinBtn.addEventListener('click', togglePin);
 
-  // Simulation
   const simBtn = $('simBtn');
   if (simBtn) simBtn.addEventListener('click', runSimulation);
 
-  // Paste handler
   editor.addEventListener('paste', (e) => {
     e.preventDefault();
     const html = e.clipboardData.getData('text/html');
@@ -169,7 +155,6 @@ function init() {
 
   editor.addEventListener('input', () => { state.text = editor.innerText; });
 
-  // Toolbar
   document.querySelectorAll('.tb-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const cmd = btn.dataset.cmd;
@@ -183,31 +168,9 @@ function init() {
     });
   });
 
-  // Export buttons
-  const saveProjectBtn = $('saveProjectBtn');
-  if (saveProjectBtn) saveProjectBtn.addEventListener('click', () => {
-    if (window.exportProject) window.exportProject(state);
-  });
-
-  const loadProjectBtn = $('loadProjectBtn');
-  const loadProjectInput = $('loadProjectInput');
-  if (loadProjectBtn && loadProjectInput) {
-    loadProjectBtn.addEventListener('click', () => loadProjectInput.click());
-    loadProjectInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file && window.importProject) window.importProject(file, state);
-    });
-  }
-
-  const exportHtmlBtn = $('exportHtmlBtn');
-  if (exportHtmlBtn) exportHtmlBtn.addEventListener('click', () => {
-    if (window.exportHtml) window.exportHtml(state);
-  });
-
   renderMap();
   renderMetrics();
   renderInspector();
-  console.log('🏁 Init Done');
 }
 
 async function runAnalysis() {
@@ -237,7 +200,6 @@ async function runAnalysis() {
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     
     state.analysis = await res.json();
-    
     renderMetrics();
     renderMap();
     renderInspector();
@@ -276,10 +238,7 @@ async function runSimulation() {
     const data = await res.json();
     const result = $('simResult');
     if (result) {
-      result.innerHTML = `<div class="sim-output">
-        <h3>Результат симуляції</h3>
-        <pre>${esc(JSON.stringify(data, null, 2))}</pre>
-      </div>`;
+      result.innerHTML = `<div class="sim-output"><h3>Результат симуляції</h3><pre>${esc(JSON.stringify(data, null, 2))}</pre></div>`;
     }
   } catch (e) { 
     alert('Error: ' + e.message); 
@@ -339,10 +298,7 @@ function renderMetrics() {
       else color = '#f85149';
     }
     
-    html += `<div class="metric" style="border-left: 4px solid ${color};">
-      <div class="metric-label">${m.label}</div>
-      <div class="metric-value" style="color:${color}">${Math.round(val)}${m.unit || ''}</div>
-    </div>`;
+    html += `<div class="metric" style="border-left: 4px solid ${color};"><div class="metric-label">${m.label}</div><div class="metric-value" style="color:${color}">${Math.round(val)}${m.unit || ''}</div></div>`;
   }
   
   container.innerHTML = html;
@@ -433,17 +389,11 @@ function renderInspector() {
     const h = (d.highlights || []).find(h => h.id === state.selectedId);
     const isPinned = state.pins.includes(state.selectedId);
     
-    html += `<div class="seg-details">
-      <h3>Фрагмент</h3>
-      <p class="seg-text">"${esc(seg?.text.slice(0, 150))}..."</p>`;
+    html += `<div class="seg-details"><h3>Фрагмент</h3><p class="seg-text">"${esc(seg?.text.slice(0, 150))}..."</p>`;
     
     if (h && h.type !== 'clean') {
       const meta = HIGHLIGHT_CONFIG[h.type] || {};
-      html += `<div class="issue-block" style="border-left: 4px solid ${meta.color || '#58a6ff'};">
-        <strong>${meta.label || h.type}</strong>
-        <p>${esc(h.details || '')}</p>
-        ${(h.suggestions || []).length ? '<div class="suggestions"><strong>Покращення:</strong><ul>' + h.suggestions.map(s => `<li>${esc(s)}</li>`).join('') + '</ul></div>' : ''}
-      </div>`;
+      html += `<div class="issue-block" style="border-left: 4px solid ${meta.color || '#58a6ff'};"><strong>${meta.label || h.type}</strong><p>${esc(h.details || '')}</p>${(h.suggestions || []).length ? '<div class="suggestions"><strong>Покращення:</strong><ul>' + h.suggestions.map(s => `<li>${esc(s)}</li>`).join('') + '</ul></div>' : ''}</div>`;
     }
     
     html += `</div>`;
@@ -451,11 +401,7 @@ function renderInspector() {
   
   if (d.recommendations && d.recommendations.length) {
     html += `<h3>Рекомендації</h3>`;
-    html += d.recommendations.map(r => `<div class="rec">
-      <strong>${esc(r.title || '')}</strong>
-      <p>${esc(r.description || '')}</p>
-      ${r.expectedImpact ? `<div class="impact">Очікуваний ефект: ${esc(JSON.stringify(r.expectedImpact))}</div>` : ''}
-    </div>`).join('');
+    html += d.recommendations.map(r => `<div class="rec"><strong>${esc(r.title || '')}</strong><p>${esc(r.description || '')}</p>${r.expectedImpact ? `<div class="impact">Очікуваний ефект: ${esc(JSON.stringify(r.expectedImpact))}</div>` : ''}</div>`).join('');
   }
   
   if (d.aiCitationSnippets && d.aiCitationSnippets.length) {
