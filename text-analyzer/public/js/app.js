@@ -1,4 +1,4 @@
-// app.js — головний контролер інтерфейсу з автопідхопленням API ключа.
+// app.js — головний контролер інтерфейсу з надійною підвязкою API ключа.
 
 const $ = id => document.getElementById(id);
 const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -17,9 +17,10 @@ function init() {
   const editor = $('editor');
   if (editor) state.text = editor.innerText || '';
 
-  // === УНІВЕРСАЛЬНЕ ПІДХОПЛЕННЯ API КЛЮЧА ===
-  const possibleKeyIds = ['apiKey', 'groqKey', 'api-key', 'key', 'creds', 'groq-api-key'];
+  // === 1. АВТОПОШУК ТА ЗБЕРЕЖЕННЯ API КЛЮЧА ===
+  const possibleKeyIds = ['apiKey', 'groqKey', 'api-key', 'key', 'creds', 'groq-api-key', 'api_key'];
   let apiKeyInput = null;
+  
   for (const id of possibleKeyIds) {
     const el = $(id);
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
@@ -29,21 +30,23 @@ function init() {
   }
 
   if (apiKeyInput) {
-    const loadKey = () => {
+    // Функція оновлення ключа в стані
+    const updateKeyState = () => {
       state.creds.groqApiKey = apiKeyInput.value.trim();
+      console.log('API Key updated in state:', state.creds.groqApiKey ? '***' + state.creds.groqApiKey.slice(-4) : 'empty');
     };
 
-    // Завантаження з localStorage або з поточного значення input
+    // Завантаження з localStorage
     const savedKey = localStorage.getItem('groqApiKey');
     if (savedKey) {
       apiKeyInput.value = savedKey;
       state.creds.groqApiKey = savedKey;
     } else {
-      loadKey();
+      updateKeyState();
     }
 
-    // Слухачі подій для оновлення стану та збереження
-    apiKeyInput.addEventListener('input', loadKey);
+    // Слухачі подій
+    apiKeyInput.addEventListener('input', updateKeyState);
     apiKeyInput.addEventListener('change', () => {
       const val = apiKeyInput.value.trim();
       if (val) localStorage.setItem('groqApiKey', val);
@@ -51,7 +54,48 @@ function init() {
     });
   }
 
-  // === ПЕРЕХВАТ ВСТАВКИ (PASTE) З ОЧИЩЕННЯМ HTML ===
+  // === 2. ОБРОБКА КНОПКИ "ПРОВЕРИТИ" (ЯКЩО ВОНА Є) ===
+  const possibleCheckBtnIds = ['checkKey', 'btnCheck', 'verify', 'check-key', 'test-key'];
+  for (const id of possibleCheckBtnIds) {
+    const btn = $(id);
+    if (btn) {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        // Примусово оновлюємо ключ перед перевіркою
+        if (apiKeyInput) state.creds.groqApiKey = apiKeyInput.value.trim();
+        
+        btn.disabled = true;
+        btn.innerText = 'Перевірка...';
+        
+        try {
+          // Робимо тестовий запит до /api/analyze з мінімальним текстом
+          const res = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              text: 'Тестове повідомлення для перевірки ключа.', 
+              creds: state.creds 
+            })
+          });
+          
+          if (res.ok) {
+            alert('✅ Ключ працює! API відповідає.');
+          } else {
+            const errText = await res.text();
+            alert('❌ Помилка ключа: ' + errText);
+          }
+        } catch (err) {
+          alert('❌ Мережева помилка: ' + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.innerText = 'Проверить'; // Або оригінальний текст, якщо він інший
+        }
+      });
+      break; // Знайшли одну кнопку і зупинились
+    }
+  }
+
+  // === 3. ПЕРЕХВАТ ВСТАВКИ (PASTE) З ОЧИЩЕННЯМ HTML ===
   if (editor) {
     editor.addEventListener('paste', (e) => {
       e.preventDefault();
@@ -90,7 +134,7 @@ function init() {
     });
   }
 
-  // === ПРИВ'ЯЗКА КНОПОК ТА ПОЛІВ ===
+  // === 4. ПРИВ'ЯЗКА ОСНОВНИХ КНОПОК ===
   document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
   
   const btnAnalyze = $('btnAnalyze');
@@ -111,6 +155,12 @@ function init() {
 }
 
 async function runAnalysis() {
+  // Примусова перевірка ключа перед аналізом
+  const savedKey = localStorage.getItem('groqApiKey');
+  if (savedKey && !state.creds.groqApiKey) {
+    state.creds.groqApiKey = savedKey;
+  }
+
   const btn = $('btnAnalyze');
   if (btn) { btn.disabled = true; btn.innerText = 'Аналіз...'; }
   
@@ -125,9 +175,12 @@ async function runAnalysis() {
       })
     });
     
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-    state.analysis = await res.json();
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText}`);
+    }
     
+    state.analysis = await res.json();
     renderMap();
     renderMetrics();
     renderInspector();
