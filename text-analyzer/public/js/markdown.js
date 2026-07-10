@@ -1,10 +1,7 @@
 // markdown.js — конвертація між contenteditable-HTML і markdown.
-// Збережено підтримку інлайнового форматування (bold, italic, links) у заголовках та списках.
 
 function htmlToMarkdown(root) {
  let md = '';
- 
- // Рекурсивна функція для збереження інлайнового форматування
  function inlineFormat(node) {
    let res = '';
    for (const child of node.childNodes) {
@@ -82,16 +79,39 @@ function markdownToHtml(md) {
 
 function inlineMd(s) { 
   let res = escapeHtml(s);
-  // Посилання
   res = res.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>');
-  // Жирний
   res = res.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  // Курсив
   res = res.replace(/\*(.+?)\*/g, '<em>$1</em>');
   return res;
 }
 
 function escapeHtml(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// === НОВЕ: ОЧИЩЕННЯ HTML ПРИ ВСТАВЦІ ===
+function sanitizePastedHtml(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const allowed = ['H1','H2','H3','P','UL','OL','LI','STRONG','B','EM','I','A','BR'];
+    
+    function clean(node) {
+        for (const child of Array.from(node.childNodes)) {
+            if (child.nodeType === 3) continue; 
+            if (child.nodeType !== 1) { child.remove(); continue; }
+            if (!allowed.includes(child.tagName)) {
+                while (child.firstChild) child.parentNode.insertBefore(child.firstChild, child);
+                child.remove();
+            } else {
+                for (const attr of Array.from(child.attributes)) {
+                    if (child.tagName === 'A' && attr.name === 'href') continue;
+                    child.removeAttribute(attr.name);
+                }
+                clean(child);
+            }
+        }
+    }
+    clean(doc.body);
+    return doc.body.innerHTML;
+}
 
 function getEditorMarkdown(el) { return htmlToMarkdown(el); }
 function setEditorMarkdown(el, md) { el.innerHTML = markdownToHtml(md); }
@@ -100,3 +120,4 @@ window.htmlToMarkdown = htmlToMarkdown;
 window.markdownToHtml = markdownToHtml;
 window.getEditorMarkdown = getEditorMarkdown;
 window.setEditorMarkdown = setEditorMarkdown;
+window.sanitizePastedHtml = sanitizePastedHtml;
