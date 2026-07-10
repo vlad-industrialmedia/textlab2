@@ -1,4 +1,4 @@
-// app.js — Версия под ID из твоего index.html (textlab2)
+// app.js — Версия, адаптированная под структуру textlab2/index.html
 
 const $ = id => document.getElementById(id);
 const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -13,6 +13,24 @@ const state = {
   creds: {}
 };
 
+// === КОНФИГУРАЦИЯ МЕТРИК (ВСТРОЕНА, ЧТОБЫ НЕ ЗАВИСЕТЬ ОТ ДР. ФАЙЛОВ) ===
+const METRICS_CONFIG = {
+  aiScore: { label: 'AI Score', unit: '%', direction: 'low', good: 35, warn: 60 },
+  burstinessScore: { label: 'Ритм', unit: '', direction: 'high', good: 55, warn: 35 },
+  perplexityScore: { label: 'Непередбачуваність', unit: '', direction: 'high', good: 45, warn: 25 },
+  geoScore: { label: 'GEO', unit: '', direction: 'high', good: 60, warn: 40 },
+  factDensity: { label: 'Факти', unit: '%', direction: 'high', good: 30, warn: 15 },
+};
+
+const HIGHLIGHT_CONFIG = {
+  ai: { color: '#a371f7', label: 'ШІ-патерн' },
+  rhythm: { color: '#e3b341', label: 'Монотонний ритм' },
+  predictable: { color: '#6cb6ff', label: 'Штампи' },
+  citation: { color: '#4dd0a7', label: 'Цінне' },
+  logic_flaw: { color: '#f0883e', label: 'Логіка' },
+  pinned: { color: '#2f7a63', label: 'Закріплено' },
+};
+
 function init() {
   console.log('🚀 TextLab Init Start...');
   
@@ -22,7 +40,7 @@ function init() {
     if (!editor) throw new Error('Element #editor not found!');
     state.text = editor.innerText || '';
 
-    // 2. API КЛЮЧ (ID из твоего HTML: apiKeyInput)
+    // 2. API КЛЮЧ (ID: apiKeyInput)
     const apiKeyInput = $('apiKeyInput');
     if (apiKeyInput) {
       const savedKey = localStorage.getItem('groqApiKey');
@@ -37,18 +55,13 @@ function init() {
         state.creds.groqApiKey = apiKeyInput.value.trim();
         localStorage.setItem('groqApiKey', apiKeyInput.value.trim());
       });
-      console.log('✅ API Key input bound');
-    } else {
-      console.warn('⚠️ #apiKeyInput not found');
     }
 
-    // 3. КНОПКА ПРОВЕРКИ (ID из твоего HTML: checkKeyBtn)
+    // 3. КНОПКА ПРОВЕРКИ (ID: checkKeyBtn)
     const checkBtn = $('checkKeyBtn');
     if (checkBtn) {
       checkBtn.addEventListener('click', async () => {
-        console.log('🔍 Checking API Key...');
         checkBtn.disabled = true;
-        const originalText = checkBtn.innerText;
         checkBtn.innerText = '...';
         try {
           const res = await fetch('/api/analyze', {
@@ -58,51 +71,37 @@ function init() {
           });
           alert(res.ok ? '✅ Ключ працює!' : '❌ Помилка: ' + await res.text());
         } catch (e) { alert('❌ Мережева помилка'); }
-        finally { checkBtn.disabled = false; checkBtn.innerText = originalText; }
+        finally { checkBtn.disabled = false; checkBtn.innerText = 'Проверить'; }
       });
     }
 
-    // 4. ТАБЫ (ID из твоего HTML: tab-render, tab-inspector)
-    const tabRender = $('tab-render');
-    const tabInspector = $('tab-inspector');
-    const viewRender = $('view-render');
-    const viewInspector = $('view-inspector');
-
-    if (tabRender && viewRender) {
-      tabRender.addEventListener('click', () => {
-        tabRender.classList.add('active');
-        if (tabInspector) tabInspector.classList.remove('active');
-        viewRender.style.display = 'block';
-        if (viewInspector) viewInspector.style.display = 'none';
+    // 4. ТАБЫ (Реализация через href как в твоем HTML)
+    const tabs = document.querySelectorAll('.tab-link');
+    tabs.forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        e.preventDefault();
+        // Убираем active у всех табов
+        tabs.forEach(t => t.classList.remove('active'));
+        // Добавляем active текущему
+        tab.classList.add('active');
+        
+        // Скрываем все view
+        document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
+        // Показываем нужный view по href
+        const targetId = tab.getAttribute('href').substring(1); // убираем #
+        const targetView = $(targetId);
+        if (targetView) targetView.style.display = 'block';
       });
-    }
+    });
 
-    if (tabInspector && viewInspector) {
-      tabInspector.addEventListener('click', () => {
-        tabInspector.classList.add('active');
-        if (tabRender) tabRender.classList.remove('active');
-        viewInspector.style.display = 'block';
-        if (viewRender) viewRender.style.display = 'none';
-      });
-    }
-    console.log('✅ Tabs bound');
-
-    // 5. ГЛАВНЫЕ КНОПКИ (ID из твоего HTML: analyzeBtn, rewriteBtn)
+    // 5. ГЛАВНЫЕ КНОПКИ (ID: analyzeBtn, rewriteBtn)
     const analyzeBtn = $('analyzeBtn');
-    if (analyzeBtn) {
-      analyzeBtn.addEventListener('click', runAnalysis);
-      console.log('✅ Analyze button bound');
-    } else {
-      console.error('❌ #analyzeBtn NOT FOUND! Check your HTML.');
-    }
+    if (analyzeBtn) analyzeBtn.addEventListener('click', runAnalysis);
     
     const rewriteBtn = $('rewriteBtn');
-    if (rewriteBtn) {
-      rewriteBtn.addEventListener('click', runRewrite);
-      console.log('✅ Rewrite button bound');
-    }
+    if (rewriteBtn) rewriteBtn.addEventListener('click', runRewrite);
 
-    // 6. SEO КЛЮЧИ (ID из твоего HTML: seoKeywords)
+    // 6. SEO КЛЮЧИ (ID: seoKeywords)
     const seoInput = $('seoKeywords');
     if (seoInput) {
       seoInput.addEventListener('input', (e) => {
@@ -210,17 +209,15 @@ function selectSegment(id) {
 }
 
 function renderMetrics() {
-  if (!state.analysis) return;
-  const d = state.analysis;
-  const meta = window.METRICS_META || {};
-  const order = window.METRICS_ORDER || Object.keys(meta);
   const container = $('metricsList');
-  if (!container) return;
-
+  if (!container || !state.analysis) return;
+  
+  const d = state.analysis;
   let html = '';
-  for (const key of order) {
-    const m = meta[key]; if (!m) continue;
-    const val = d[key]; if (val == null) continue;
+  for (const [key, m] of Object.entries(METRICS_CONFIG)) {
+    const val = d[key]; 
+    if (val == null) continue;
+    
     let color = '#58a6ff';
     if (m.direction === 'low') {
       if (val <= m.good) color = '#4dd0a7'; else if (val <= m.warn) color = '#e3b341'; else color = '#f85149';
@@ -268,8 +265,7 @@ function renderInspector() {
   (d.highlights||[]).forEach(h => { if(counts[h.type]!==undefined) counts[h.type]++; });
   
   let legend = '<div class="legend-grid">';
-  const hlMeta = window.HIGHLIGHT_META || {};
-  for (const [type, meta] of Object.entries(hlMeta)) {
+  for (const [type, meta] of Object.entries(HIGHLIGHT_CONFIG)) {
     legend += `<div class="legend-item" data-type="${type}" style="border-left:4px solid ${meta.color};cursor:pointer;" onclick="state.filter='${type}';renderMap();renderInspector();"><span>${meta.label}</span> <b>(${counts[type]||0})</b></div>`;
   }
   legend += '</div>';
