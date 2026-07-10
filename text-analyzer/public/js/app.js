@@ -1,4 +1,4 @@
-// app.js — Финальная версия с защитой от ошибок рендеринга
+// app.js — Финальная версия под textlab2 HTML
 
 const $ = id => document.getElementById(id);
 const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -14,7 +14,8 @@ const state = {
   creds: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
 };
 
-const METRICS_CONFIG = {
+// Используем конфигурацию из metrics-meta.js если доступна
+const METRICS_CONFIG = window.METRICS_META || {
   aiScore: { label: 'AI Score', unit: '%', direction: 'low', good: 35, warn: 60 },
   burstinessScore: { label: 'Ритм', unit: '', direction: 'high', good: 55, warn: 35 },
   perplexityScore: { label: 'Непередбачуваність', unit: '', direction: 'high', good: 45, warn: 25 },
@@ -22,7 +23,7 @@ const METRICS_CONFIG = {
   factDensity: { label: 'Факти', unit: '%', direction: 'high', good: 30, warn: 15 },
 };
 
-const HIGHLIGHT_CONFIG = {
+const HIGHLIGHT_CONFIG = window.HIGHLIGHT_META || {
   ai: { color: '#a371f7', label: 'ШІ-патерн' },
   rhythm: { color: '#e3b341', label: 'Монотонний ритм' },
   predictable: { color: '#6cb6ff', label: 'Штампи' },
@@ -35,176 +36,178 @@ const HIGHLIGHT_CONFIG = {
 function init() {
   console.log('🚀 TextLab Init...');
   
-  try {
-    const editor = $('editor');
-    if (!editor) { console.error('❌ #editor not found'); return; }
-    state.text = editor.innerText || '';
+  const editor = $('editor');
+  if (!editor) { console.error('❌ #editor not found'); return; }
+  state.text = editor.innerText || '';
 
-    // API Key
-    const apiKeyInput = $('apiKey');
-    if (apiKeyInput) {
-      const savedKey = localStorage.getItem('apiKey');
-      if (savedKey) { apiKeyInput.value = savedKey; state.creds.apiKey = savedKey; }
-      apiKeyInput.addEventListener('input', () => {
-        state.creds.apiKey = apiKeyInput.value.trim();
-        localStorage.setItem('apiKey', apiKeyInput.value.trim());
-      });
-    }
-
-    // Provider
-    const providerSelect = $('provider');
-    if (providerSelect) {
-      state.creds.provider = providerSelect.value;
-      providerSelect.addEventListener('change', () => {
-        state.creds.provider = providerSelect.value;
-        updateModelSelect();
-      });
-    }
-
-    // Model
-    updateModelSelect();
-    const modelSelect = $('modelSelect');
-    if (modelSelect) {
-      modelSelect.addEventListener('change', () => { state.creds.model = modelSelect.value; });
-    }
-
-    // Validate button
-    const validateBtn = $('validateBtn');
-    if (validateBtn) {
-      validateBtn.addEventListener('click', async () => {
-        validateBtn.disabled = true;
-        const status = $('validateStatus');
-        if (status) status.innerText = 'Перевірка...';
-        try {
-          const res = await fetch('/api/validate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ creds: state.creds })
-          });
-          const data = await res.json();
-          if (status) status.innerText = data.ok ? `✅ OK (${data.latencyMs}ms)` : '❌ ' + (data.error || 'Error');
-        } catch (e) { if (status) status.innerText = '❌ Network Error'; }
-        finally { validateBtn.disabled = false; }
-      });
-    }
-
-    // SEO Keywords
-    const seoInput = $('seoKeywords');
-    if (seoInput) {
-      seoInput.addEventListener('input', (e) => {
-        state.seoKeywords = e.target.value.split(',').map(k => k.trim()).filter(Boolean);
-      });
-    }
-
-    // Seed Keyword
-    const seedInput = $('seedKeyword');
-    if (seedInput) {
-      seedInput.addEventListener('input', (e) => { state.seedKeyword = e.target.value.trim(); });
-    }
-
-    // Tabs
-    const tabs = document.querySelectorAll('.tab');
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        tabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const targetTab = tab.dataset.tab;
-        document.querySelectorAll('section[id^="tab-"]').forEach(s => s.style.display = 'none');
-        const targetSection = $('tab-' + targetTab);
-        if (targetSection) targetSection.style.display = 'block';
-      });
+  // API Key
+  const apiKeyInput = $('apiKey');
+  if (apiKeyInput) {
+    const savedKey = localStorage.getItem('apiKey');
+    if (savedKey) { apiKeyInput.value = savedKey; state.creds.apiKey = savedKey; }
+    apiKeyInput.addEventListener('input', () => {
+      state.creds.apiKey = apiKeyInput.value.trim();
+      localStorage.setItem('apiKey', apiKeyInput.value.trim());
     });
-
-    // Main buttons
-    const analyzeBtn = $('analyzeBtn');
-    if (analyzeBtn) analyzeBtn.addEventListener('click', runAnalysis);
-    
-    const clearBtn = $('clearBtn');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', () => {
-        editor.innerText = '';
-        state.text = '';
-        state.analysis = null;
-        renderMap();
-        renderMetrics();
-        renderInspector();
-      });
-    }
-
-    // Pin button
-    const pinBtn = $('pinBtn');
-    if (pinBtn) pinBtn.addEventListener('click', togglePin);
-
-    // Paste handler
-    editor.addEventListener('paste', (e) => {
-      e.preventDefault();
-      const html = e.clipboardData.getData('text/html');
-      const text = e.clipboardData.getData('text/plain');
-      let cleanHtml = text;
-      if (html && window.sanitizePastedHtml) cleanHtml = window.sanitizePastedHtml(html);
-      
-      const sel = window.getSelection();
-      if (sel.rangeCount) {
-        const range = sel.getRangeAt(0);
-        range.deleteContents();
-        const temp = document.createElement('div');
-        temp.innerHTML = cleanHtml;
-        const frag = document.createDocumentFragment();
-        let node, lastNode;
-        while ((node = temp.firstChild)) lastNode = frag.appendChild(node);
-        range.insertNode(frag);
-        if (lastNode) {
-          range.setStartAfter(lastNode);
-          range.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-      }
-      state.text = editor.innerText;
-    });
-
-    editor.addEventListener('input', () => { state.text = editor.innerText; });
-
-    // Toolbar
-    document.querySelectorAll('.tb-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const cmd = btn.dataset.cmd;
-        if (cmd === 'h1') document.execCommand('formatBlock', false, 'h1');
-        else if (cmd === 'h2') document.execCommand('formatBlock', false, 'h2');
-        else if (cmd === 'h3') document.execCommand('formatBlock', false, 'h3');
-        else if (cmd === 'bold') document.execCommand('bold');
-        else if (cmd === 'ul') document.execCommand('insertUnorderedList');
-        else if (cmd === 'ol') document.execCommand('insertOrderedList');
-        else if (cmd === 'p') document.execCommand('formatBlock', false, 'p');
-      });
-    });
-
-    renderMap();
-    renderMetrics();
-    renderInspector();
-    console.log('🏁 Init Done');
-
-  } catch (err) {
-    console.error('💥 INIT ERROR:', err);
   }
-}
 
-function updateModelSelect() {
+  // Provider
+  const providerSelect = $('provider');
+  if (providerSelect) {
+    state.creds.provider = providerSelect.value;
+    providerSelect.addEventListener('change', () => {
+      state.creds.provider = providerSelect.value;
+      if (window.updateModelSelect) window.updateModelSelect();
+    });
+  }
+
+  // Model
+  if (window.updateModelSelect) window.updateModelSelect();
   const modelSelect = $('modelSelect');
-  if (!modelSelect) return;
+  if (modelSelect) {
+    modelSelect.addEventListener('change', () => { state.creds.model = modelSelect.value; });
+  }
+
+  // Validate button
+  const validateBtn = $('validateBtn');
+  if (validateBtn) {
+    validateBtn.addEventListener('click', async () => {
+      validateBtn.disabled = true;
+      const status = $('validateStatus');
+      if (status) status.innerText = 'Перевірка...';
+      try {
+        const res = await fetch('/api/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ creds: state.creds })
+        });
+        const data = await res.json();
+        if (status) status.innerText = data.ok ? `✅ OK (${data.latencyMs}ms)` : '❌ ' + (data.error || 'Error');
+      } catch (e) { if (status) status.innerText = '❌ Network Error'; }
+      finally { validateBtn.disabled = false; }
+    });
+  }
+
+  // SEO Keywords
+  const seoInput = $('seoKeywords');
+  if (seoInput) {
+    seoInput.addEventListener('input', (e) => {
+      state.seoKeywords = e.target.value.split(',').map(k => k.trim()).filter(Boolean);
+    });
+  }
+
+  // Seed Keyword
+  const seedInput = $('seedKeyword');
+  if (seedInput) {
+    seedInput.addEventListener('input', (e) => { state.seedKeyword = e.target.value.trim(); });
+  }
+
+  // Tabs
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const targetTab = tab.dataset.tab;
+      document.querySelectorAll('section[id^="tab-"]').forEach(s => s.style.display = 'none');
+      const targetSection = $('tab-' + targetTab);
+      if (targetSection) targetSection.style.display = 'block';
+    });
+  });
+
+  // Main buttons
+  const analyzeBtn = $('analyzeBtn');
+  if (analyzeBtn) analyzeBtn.addEventListener('click', runAnalysis);
   
-  const models = {
-    groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
-    openai: ['gpt-4o-mini', 'gpt-4o'],
-    anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307'],
-    gemini: ['gemini-1.5-flash', 'gemini-1.5-pro']
-  };
-  
-  const provider = state.creds.provider || 'groq';
-  const providerModels = models[provider] || models.groq;
-  
-  modelSelect.innerHTML = providerModels.map(m => `<option value="${m}">${m}</option>`).join('');
-  state.creds.model = providerModels[0];
+  const clearBtn = $('clearBtn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      editor.innerText = '';
+      state.text = '';
+      state.analysis = null;
+      renderMap();
+      renderMetrics();
+      renderInspector();
+    });
+  }
+
+  // Pin button
+  const pinBtn = $('pinBtn');
+  if (pinBtn) pinBtn.addEventListener('click', togglePin);
+
+  // Simulation
+  const simBtn = $('simBtn');
+  if (simBtn) simBtn.addEventListener('click', runSimulation);
+
+  // Paste handler
+  editor.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const html = e.clipboardData.getData('text/html');
+    const text = e.clipboardData.getData('text/plain');
+    let cleanHtml = text;
+    if (html && window.sanitizePastedHtml) cleanHtml = window.sanitizePastedHtml(html);
+    
+    const sel = window.getSelection();
+    if (sel.rangeCount) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const temp = document.createElement('div');
+      temp.innerHTML = cleanHtml;
+      const frag = document.createDocumentFragment();
+      let node, lastNode;
+      while ((node = temp.firstChild)) lastNode = frag.appendChild(node);
+      range.insertNode(frag);
+      if (lastNode) {
+        range.setStartAfter(lastNode);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+    state.text = editor.innerText;
+  });
+
+  editor.addEventListener('input', () => { state.text = editor.innerText; });
+
+  // Toolbar
+  document.querySelectorAll('.tb-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cmd = btn.dataset.cmd;
+      if (cmd === 'h1') document.execCommand('formatBlock', false, 'h1');
+      else if (cmd === 'h2') document.execCommand('formatBlock', false, 'h2');
+      else if (cmd === 'h3') document.execCommand('formatBlock', false, 'h3');
+      else if (cmd === 'bold') document.execCommand('bold');
+      else if (cmd === 'ul') document.execCommand('insertUnorderedList');
+      else if (cmd === 'ol') document.execCommand('insertOrderedList');
+      else if (cmd === 'p') document.execCommand('formatBlock', false, 'p');
+    });
+  });
+
+  // Export buttons
+  const saveProjectBtn = $('saveProjectBtn');
+  if (saveProjectBtn) saveProjectBtn.addEventListener('click', () => {
+    if (window.exportProject) window.exportProject(state);
+  });
+
+  const loadProjectBtn = $('loadProjectBtn');
+  const loadProjectInput = $('loadProjectInput');
+  if (loadProjectBtn && loadProjectInput) {
+    loadProjectBtn.addEventListener('click', () => loadProjectInput.click());
+    loadProjectInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file && window.importProject) window.importProject(file, state);
+    });
+  }
+
+  const exportHtmlBtn = $('exportHtmlBtn');
+  if (exportHtmlBtn) exportHtmlBtn.addEventListener('click', () => {
+    if (window.exportHtml) window.exportHtml(state);
+  });
+
+  renderMap();
+  renderMetrics();
+  renderInspector();
+  console.log('🏁 Init Done');
 }
 
 async function runAnalysis() {
@@ -214,9 +217,10 @@ async function runAnalysis() {
   const apiKeyInput = $('apiKey');
   if (apiKeyInput) state.creds.apiKey = apiKeyInput.value.trim();
   
-  console.log('📤 Sending analysis request...');
   btn.disabled = true; 
   btn.innerText = 'Аналіз...';
+  const statusMsg = $('statusMsg');
+  if (statusMsg) statusMsg.innerText = 'Аналіз...';
   
   try {
     const res = await fetch('/api/analyze', {
@@ -233,17 +237,54 @@ async function runAnalysis() {
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     
     state.analysis = await res.json();
-    console.log('✅ Analysis complete:', state.analysis);
     
     renderMetrics();
     renderMap();
     renderInspector();
+    
+    if (statusMsg) statusMsg.innerText = '✅ Готово';
+    setTimeout(() => { if (statusMsg) statusMsg.innerText = ''; }, 3000);
   } catch (e) { 
     console.error('❌ Analysis Error:', e);
     alert('Error: ' + e.message); 
+    if (statusMsg) statusMsg.innerText = '❌ Помилка';
   } finally { 
     btn.disabled = false; 
     btn.innerText = 'Проаналізувати'; 
+  }
+}
+
+async function runSimulation() {
+  const query = $('simQuery')?.value.trim();
+  if (!query) return alert('Введіть запит');
+  if (!state.analysis) return alert('Спочатку проаналізуйте текст');
+  
+  const btn = $('simBtn');
+  if (btn) { btn.disabled = true; btn.innerText = 'Симуляція...'; }
+  
+  try {
+    const res = await fetch('/api/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        text: state.text, 
+        query,
+        creds: state.creds 
+      })
+    });
+    
+    const data = await res.json();
+    const result = $('simResult');
+    if (result) {
+      result.innerHTML = `<div class="sim-output">
+        <h3>Результат симуляції</h3>
+        <pre>${esc(JSON.stringify(data, null, 2))}</pre>
+      </div>`;
+    }
+  } catch (e) { 
+    alert('Error: ' + e.message); 
+  } finally { 
+    if (btn) { btn.disabled = false; btn.innerText = 'Перевірити у ШІ-пошуку'; }
   }
 }
 
@@ -252,6 +293,10 @@ function togglePin() {
   const i = state.pins.indexOf(state.selectedId);
   if (i > -1) state.pins.splice(i, 1);
   else state.pins.push(state.selectedId);
+  
+  const selPop = $('selPop');
+  if (selPop) selPop.style.display = 'none';
+  
   renderMap();
   renderInspector();
 }
@@ -259,12 +304,21 @@ function togglePin() {
 function selectSegment(id) {
   state.selectedId = id;
   document.querySelectorAll('.seg').forEach(el => el.classList.toggle('selected', el.dataset.id === id));
+  
+  const selPop = $('selPop');
+  if (selPop) {
+    const rect = event.target.getBoundingClientRect();
+    selPop.style.display = 'block';
+    selPop.style.left = (rect.left + window.scrollX) + 'px';
+    selPop.style.top = (rect.bottom + window.scrollY + 5) + 'px';
+  }
+  
   renderInspector();
 }
 
 function renderMetrics() {
   const container = $('metrics');
-  if (!container) { console.warn('⚠️ #metrics not found'); return; }
+  if (!container) return;
   if (!state.analysis) { container.innerHTML = ''; return; }
   
   const d = state.analysis;
@@ -292,12 +346,11 @@ function renderMetrics() {
   }
   
   container.innerHTML = html;
-  console.log('✅ Metrics rendered');
 }
 
 function renderMap() {
   const container = $('docRender');
-  if (!container) { console.warn('⚠️ #docRender not found'); return; }
+  if (!container) return;
   if (!state.analysis) { container.innerHTML = ''; return; }
   
   const { segments, highlights } = state.analysis;
@@ -328,13 +381,49 @@ function renderMap() {
     el.addEventListener('click', () => selectSegment(el.dataset.id));
   });
   
-  console.log('✅ Map rendered');
+  renderFilters();
+}
+
+function renderFilters() {
+  const filterRow = $('filterRow');
+  if (!filterRow || !state.analysis) return;
+  
+  const counts = { all: 0, ai: 0, rhythm: 0, predictable: 0, citation: 0, logic_flaw: 0, low_relevance: 0, pinned: state.pins.length };
+  (state.analysis.highlights || []).forEach(h => {
+    if (counts[h.type] !== undefined) counts[h.type]++;
+    counts.all++;
+  });
+  
+  let html = `<div class="filter-item ${state.filter === 'all' ? 'active' : ''}" data-type="all" style="border-left: 3px solid #8b949e; cursor: pointer;">Всі (${counts.all})</div>`;
+  
+  for (const [type, meta] of Object.entries(HIGHLIGHT_CONFIG)) {
+    const count = counts[type] || 0;
+    const isActive = state.filter === type ? 'active' : '';
+    html += `<div class="filter-item ${isActive}" data-type="${type}" style="border-left: 3px solid ${meta.color}; cursor: pointer;">${meta.label} (${count})</div>`;
+  }
+  
+  filterRow.innerHTML = html;
+  
+  filterRow.querySelectorAll('.filter-item').forEach(el => {
+    el.addEventListener('click', () => {
+      state.filter = el.dataset.type;
+      renderMap();
+    });
+  });
 }
 
 function renderInspector() {
   const container = $('inspContent');
-  if (!container) { console.warn('⚠️ #inspContent not found'); return; }
-  if (!state.analysis) { container.innerHTML = ''; return; }
+  const inspEmpty = $('inspEmpty');
+  if (!container) return;
+  
+  if (!state.analysis) {
+    if (inspEmpty) inspEmpty.style.display = 'block';
+    container.innerHTML = '';
+    return;
+  }
+  
+  if (inspEmpty) inspEmpty.style.display = 'none';
   
   const d = state.analysis;
   let html = '';
@@ -346,13 +435,14 @@ function renderInspector() {
     
     html += `<div class="seg-details">
       <h3>Фрагмент</h3>
-      <p>"${esc(seg?.text.slice(0, 100))}..."</p>`;
+      <p class="seg-text">"${esc(seg?.text.slice(0, 150))}..."</p>`;
     
     if (h && h.type !== 'clean') {
       const meta = HIGHLIGHT_CONFIG[h.type] || {};
       html += `<div class="issue-block" style="border-left: 4px solid ${meta.color || '#58a6ff'};">
         <strong>${meta.label || h.type}</strong>
         <p>${esc(h.details || '')}</p>
+        ${(h.suggestions || []).length ? '<div class="suggestions"><strong>Покращення:</strong><ul>' + h.suggestions.map(s => `<li>${esc(s)}</li>`).join('') + '</ul></div>' : ''}
       </div>`;
     }
     
@@ -361,11 +451,19 @@ function renderInspector() {
   
   if (d.recommendations && d.recommendations.length) {
     html += `<h3>Рекомендації</h3>`;
-    html += d.recommendations.map(r => `<div class="rec"><strong>${esc(r.title || '')}</strong><p>${esc(r.description || '')}</p></div>`).join('');
+    html += d.recommendations.map(r => `<div class="rec">
+      <strong>${esc(r.title || '')}</strong>
+      <p>${esc(r.description || '')}</p>
+      ${r.expectedImpact ? `<div class="impact">Очікуваний ефект: ${esc(JSON.stringify(r.expectedImpact))}</div>` : ''}
+    </div>`).join('');
+  }
+  
+  if (d.aiCitationSnippets && d.aiCitationSnippets.length) {
+    html += `<h3>Готові сніпети для цитування</h3>`;
+    html += d.aiCitationSnippets.map(s => `<div class="snippet">"${esc(s)}"</div>`).join('');
   }
   
   container.innerHTML = html;
-  console.log('✅ Inspector rendered');
 }
 
 document.addEventListener('DOMContentLoaded', init);
