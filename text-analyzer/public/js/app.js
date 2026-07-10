@@ -1,4 +1,4 @@
-// app.js — головний контролер інтерфейсу (v2.0 Full Fix)
+// app.js — головний контролер інтерфейсу з автопідхопленням API ключа.
 
 const $ = id => document.getElementById(id);
 const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -10,104 +10,101 @@ const state = {
   filter: 'all',
   pins: [],
   seoKeywords: [],
-  creds: {} // Сюда будет загружаться API ключ
+  creds: {}
 };
 
 function init() {
   const editor = $('editor');
-  if (!editor) return console.error('Editor element not found');
-  
-  state.text = editor.innerText || '';
+  if (editor) state.text = editor.innerText || '';
 
-  // === 1. ЗАВАНТАЖЕННЯ API КЛЮЧА (FIXED) ===
-  // Пытаемся найти input по всем возможным ID
-  const apiKeyInput = $('apiKey') || $('groqKey') || $('api-key') || $('key') || document.querySelector('input[type="password"]');
-  
+  // === УНІВЕРСАЛЬНЕ ПІДХОПЛЕННЯ API КЛЮЧА ===
+  const possibleKeyIds = ['apiKey', 'groqKey', 'api-key', 'key', 'creds', 'groq-api-key'];
+  let apiKeyInput = null;
+  for (const id of possibleKeyIds) {
+    const el = $(id);
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+      apiKeyInput = el;
+      break;
+    }
+  }
+
   if (apiKeyInput) {
     const loadKey = () => {
-      const key = apiKeyInput.value.trim();
-      state.creds.groqApiKey = key;
-      // Также дублируем в другие возможные поля для совместимости с бэкендом
-      state.creds.apiKey = key; 
-      state.creds.key = key;
+      state.creds.groqApiKey = apiKeyInput.value.trim();
     };
 
-    // Загрузка из localStorage при старте
-    const savedKey = localStorage.getItem('groqApiKey') || localStorage.getItem('apiKey');
+    // Завантаження з localStorage або з поточного значення input
+    const savedKey = localStorage.getItem('groqApiKey');
     if (savedKey) {
       apiKeyInput.value = savedKey;
-      loadKey();
+      state.creds.groqApiKey = savedKey;
     } else {
-      loadKey(); // Берем то, что уже введено в поле
+      loadKey();
     }
 
-    // Слушатели событий
+    // Слухачі подій для оновлення стану та збереження
     apiKeyInput.addEventListener('input', loadKey);
     apiKeyInput.addEventListener('change', () => {
-      const key = apiKeyInput.value.trim();
-      if (key) localStorage.setItem('groqApiKey', key);
+      const val = apiKeyInput.value.trim();
+      if (val) localStorage.setItem('groqApiKey', val);
+      else localStorage.removeItem('groqApiKey');
     });
-  } else {
-    console.warn('API Key input not found in DOM');
   }
 
-  // === 2. SEO КЛЮЧІ ===
-  const seoInput = $('seoKeys') || $('keywords');
-  if (seoInput) {
-    seoInput.addEventListener('input', (e) => {
-      state.seoKeywords = e.target.value.split(',').map(k => k.trim()).filter(Boolean);
+  // === ПЕРЕХВАТ ВСТАВКИ (PASTE) З ОЧИЩЕННЯМ HTML ===
+  if (editor) {
+    editor.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const html = e.clipboardData.getData('text/html');
+      const text = e.clipboardData.getData('text/plain');
+      
+      let cleanHtml = text;
+      if (html && window.sanitizePastedHtml) {
+        cleanHtml = window.sanitizePastedHtml(html);
+      }
+      
+      const selection = window.getSelection();
+      if (selection.rangeCount) {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        const temp = document.createElement('div');
+        temp.innerHTML = cleanHtml;
+        const frag = document.createDocumentFragment();
+        let node, lastNode;
+        while ((node = temp.firstChild)) {
+          lastNode = frag.appendChild(node);
+        }
+        range.insertNode(frag);
+        if (lastNode) {
+          range.setStartAfter(lastNode);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      }
+      state.text = editor.innerText;
     });
-    // Загружаем начальное значение
-    state.seoKeywords = seoInput.value.split(',').map(k => k.trim()).filter(Boolean);
+
+    editor.addEventListener('input', () => {
+      state.text = editor.innerText;
+    });
   }
 
-  // === 3. ОБРОБКА ВСТАВКИ (PASTE SANITIZER) ===
-  editor.addEventListener('paste', (e) => {
-    e.preventDefault();
-    const html = e.clipboardData.getData('text/html');
-    const text = e.clipboardData.getData('text/plain');
-    
-    let cleanHtml = text;
-    if (html && window.sanitizePastedHtml) {
-      cleanHtml = window.sanitizePastedHtml(html);
-    }
-    
-    const selection = window.getSelection();
-    if (selection.rangeCount) {
-      const range = selection.getRangeAt(0);
-      range.deleteContents();
-      const temp = document.createElement('div');
-      temp.innerHTML = cleanHtml;
-      const frag = document.createDocumentFragment();
-      let node, lastNode;
-      while ((node = temp.firstChild)) {
-        lastNode = frag.appendChild(node);
-      }
-      range.insertNode(frag);
-      if (lastNode) {
-        range.setStartAfter(lastNode);
-        range.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
-    }
-    state.text = editor.innerText;
-  });
-
-  editor.addEventListener('input', () => {
-    state.text = editor.innerText;
-  });
-
-  // === 4. КНОПКИ ТА ТАБИ ===
+  // === ПРИВ'ЯЗКА КНОПОК ТА ПОЛІВ ===
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+  
   const btnAnalyze = $('btnAnalyze');
   if (btnAnalyze) btnAnalyze.addEventListener('click', runAnalysis);
   
   const btnRewrite = $('btnRewrite');
   if (btnRewrite) btnRewrite.addEventListener('click', runRewrite);
-
-  document.querySelectorAll('.tab').forEach(t => 
-    t.addEventListener('click', () => switchTab(t.dataset.tab))
-  );
+  
+  const seoKeysInput = $('seoKeys');
+  if (seoKeysInput) {
+    seoKeysInput.addEventListener('input', (e) => {
+      state.seoKeywords = e.target.value.split(',').map(k => k.trim()).filter(Boolean);
+    });
+  }
 
   renderMap();
   renderInspector();
@@ -128,7 +125,7 @@ async function runAnalysis() {
       })
     });
     
-    if (!res.ok) throw new Error(`Server error: ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     state.analysis = await res.json();
     
     renderMap();
@@ -136,7 +133,6 @@ async function runAnalysis() {
     renderInspector();
   } catch (e) {
     alert('Помилка аналізу: ' + e.message);
-    console.error(e);
   } finally {
     if (btn) { btn.disabled = false; btn.innerText = 'Аналізувати'; }
   }
@@ -149,8 +145,8 @@ async function runRewrite() {
   if (!seg) return;
   
   const idx = state.analysis.segments.indexOf(seg);
-  const prevCtx = idx > 0 ? state.analysis.segments[idx-1].text : '';
-  const nextCtx = idx < state.analysis.segments.length - 1 ? state.analysis.segments[idx+1].text : '';
+  const prevCtx = idx > 0 ? state.analysis.segments[idx - 1].text : '';
+  const nextCtx = idx < state.analysis.segments.length - 1 ? state.analysis.segments[idx + 1].text : '';
 
   const btn = $('btnRewrite');
   if (btn) { btn.disabled = true; btn.innerText = 'Покращення...'; }
@@ -168,12 +164,13 @@ async function runRewrite() {
       })
     });
     
-    if (!res.ok) throw new Error(`Server error: ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     const data = await res.json();
     
     if (data.applied && data.rewrittenSegment) {
       state.text = state.text.slice(0, seg.startOffset) + data.rewrittenSegment + state.text.slice(seg.endOffset);
-      $('editor').innerText = state.text;
+      const editor = $('editor');
+      if (editor) editor.innerText = state.text;
       await runAnalysis();
     } else {
       alert(data.reason || 'Рерайт не застосовано.');
@@ -188,11 +185,9 @@ async function runRewrite() {
 function togglePin() {
   if (!state.selectedId) return;
   const idx = state.pins.indexOf(state.selectedId);
-  if (idx > -1) {
-    state.pins.splice(idx, 1);
-  } else {
-    state.pins.push(state.selectedId);
-  }
+  if (idx > -1) state.pins.splice(idx, 1);
+  else state.pins.push(state.selectedId);
+  
   renderMap();
   renderInspector();
 }
@@ -216,8 +211,6 @@ function renderMetrics() {
   const d = state.analysis;
   const meta = window.METRICS_META || {};
   const order = window.METRICS_ORDER || Object.keys(meta);
-  const container = $('metricsList');
-  if (!container) return;
   
   let html = '';
   for (const key of order) {
@@ -242,14 +235,16 @@ function renderMetrics() {
       <div class="metric-val" style="color:${color}">${Math.round(val)}${m.unit || ''}</div>
     </div>`;
   }
-  container.innerHTML = html;
+  const metricsList = $('metricsList');
+  if (metricsList) metricsList.innerHTML = html;
 }
 
 function renderMap() {
-  const container = $('docRender');
-  if (!container) return;
-  
-  if (!state.analysis) { container.innerHTML = 'Немає даних.'; return; }
+  if (!state.analysis) { 
+    const docRender = $('docRender');
+    if (docRender) docRender.innerHTML = 'Немає даних.'; 
+    return; 
+  }
   
   const { segments, highlights } = state.analysis;
   const hlMap = {}; 
@@ -265,18 +260,17 @@ function renderMap() {
     let h = hlMap[seg.id];
     let type = h && h.type && h.type !== 'clean' ? h.type : '';
     
-    const isPinned = state.pins.includes(seg.id);
-    if (isPinned) type = 'pinned';
-    else if (state.filter !== 'all' && type !== state.filter) type = '';
+    if (state.filter !== 'all' && type !== state.filter && !state.pins.includes(seg.id)) type = '';
+    if (state.pins.includes(seg.id)) type = 'pinned';
+    if (state.filter !== 'all' && state.filter !== 'pinned' && state.pins.includes(seg.id) && type !== state.filter) type = 'pinned';
 
     let tooltipText = '';
-    if (isPinned) {
-      tooltipText = 'Закріплений фрагмент. Клікніть "Відкріпити" в інспекторі.';
-    } else if (h && h.type !== 'clean') {
+    if (h && h.type !== 'clean') {
       const hlMeta = window.HIGHLIGHT_META || {};
       const meta = hlMeta[h.type] || {};
       tooltipText = (meta.label || h.type) + ': ' + (h.details || meta.desc || '');
     }
+    if (state.pins.includes(seg.id)) tooltipText = 'Закріплений фрагмент. Клікніть "Відкріпити" в інспекторі.';
     
     const isSelected = seg.id === state.selectedId ? 'selected' : '';
     html += `<span class="seg ${type} ${isSelected}" data-id="${seg.id}" title="${esc(tooltipText)}">${esc(text.slice(seg.startOffset, seg.endOffset))}</span>`;
@@ -284,36 +278,32 @@ function renderMap() {
   }
   
   if (cursor < text.length) html += esc(text.slice(cursor));
-  container.innerHTML = html;
   
-  document.querySelectorAll('.seg').forEach(el => 
-    el.addEventListener('click', () => selectSegment(el.dataset.id))
-  );
+  const docRender = $('docRender');
+  if (docRender) docRender.innerHTML = html;
+  
+  document.querySelectorAll('.seg').forEach(el => el.addEventListener('click', () => selectSegment(el.dataset.id)));
 }
 
 function renderInspector() {
-  const emptyEl = $('inspEmpty');
-  const contentEl = $('inspContent');
-  if (!contentEl) return;
+  const inspEmpty = $('inspEmpty');
+  const inspContent = $('inspContent');
   
   if (!state.analysis) {
-    if (emptyEl) emptyEl.style.display = 'block';
-    contentEl.innerHTML = '';
+    if (inspEmpty) inspEmpty.style.display = 'block';
+    if (inspContent) inspContent.innerHTML = '';
     return;
   }
-  if (emptyEl) emptyEl.style.display = 'none';
+  
+  if (inspEmpty) inspEmpty.style.display = 'none';
   
   const d = state.analysis;
-  const hlMeta = window.HIGHLIGHT_META || {};
-  
-  // Считаем количество каждого типа
-  const counts = {};
-  Object.keys(hlMeta).forEach(k => counts[k] = 0);
-  counts['pinned'] = (state.pins || []).length;
+  const counts = { ai: 0, rhythm: 0, predictable: 0, citation: 0, logic_flaw: 0, low_relevance: 0, low_geo: 0 };
   (d.highlights || []).forEach(h => { if (counts[h.type] !== undefined) counts[h.type]++; });
+  counts['pinned'] = (state.pins || []).length;
 
-  // Легенда с фильтрами
   let legendHtml = '<div class="legend-grid">';
+  const hlMeta = window.HIGHLIGHT_META || {};
   for (const [type, meta] of Object.entries(hlMeta)) {
     const count = counts[type] || 0;
     const isActive = state.filter === type ? 'active-filter' : '';
@@ -321,6 +311,7 @@ function renderInspector() {
       <span>${meta.label}</span> <b>(${count})</b>
     </div>`;
   }
+  
   if (state.filter !== 'all') {
     legendHtml += `<div class="legend-item" data-type="all" style="border-left: 4px solid #8b949e; cursor:pointer;">
       <span>Показати все</span>
@@ -328,7 +319,6 @@ function renderInspector() {
   }
   legendHtml += '</div>';
 
-  // Детали выбранного сегмента
   let detailsHtml = '';
   if (state.selectedId) {
     const seg = d.segments.find(s => s.id === state.selectedId);
@@ -337,12 +327,12 @@ function renderInspector() {
     
     detailsHtml += `<div class="seg-details">
       <h3>Обраний фрагмент</h3>
-      <p class="seg-text">"${esc(seg ? seg.text.slice(0, 150) + (seg.text.length > 150 ? '...' : '') : '')}"</p>
-      <button id="btnPinAction" class="btn-action">${isPinned ? '📌 Відкріпити' : '📍 Закріпити'}</button>`;
+      <p class="seg-text">"${esc(seg ? seg.text.slice(0, 100) + '...' : '')}"</p>
+      <button id="btnPinDynamic" class="btn-action">${isPinned ? '📌 Відкріпити' : '📍 Закріпити'}</button>`;
       
     if (h && h.type !== 'clean') {
       const meta = hlMeta[h.type] || {};
-      detailsHtml += `<div class="issue-block" style="border-left: 4px solid ${meta.color}; margin-top:10px;">
+      detailsHtml += `<div class="issue-block" style="border-left: 4px solid ${meta.color};">
         <strong>${meta.label || h.type}</strong>
         <p>${esc(h.details || meta.desc || '')}</p>
         ${(h.suggestions || []).length ? '<ul>' + h.suggestions.map(s => `<li>${esc(s)}</li>`).join('') + '</ul>' : ''}
@@ -351,45 +341,46 @@ function renderInspector() {
     detailsHtml += `</div>`;
   }
 
-  // Обзор маркеров и сниппетов
   let overviewHtml = '';
   if (d.aiFingerprints && d.aiFingerprints.length) {
     overviewHtml += `<h3>ШІ-маркери</h3>` + d.aiFingerprints.map(f => {
       let hlType = 'ai';
       if (f.marker.includes('Burstiness')) hlType = 'rhythm';
       else if (f.marker.includes('Predictable')) hlType = 'predictable';
-      return `<span class="fingerprint clickable" data-hl="${hlType}" style="cursor:pointer; text-decoration:underline; margin-right:8px;">${esc(f.marker)} <span class="severity">${f.severity}</span></span>`;
+      return `<span class="fingerprint clickable" data-hl="${hlType}" style="cursor:pointer; text-decoration:underline;">${esc(f.marker)} <span class="severity">${f.severity}</span></span>`;
     }).join('') + `<div class="clear"></div>`;
   }
 
   if (d.aiCitationSnippets && d.aiCitationSnippets.length) {
-    overviewHtml += `<h3>Готові сніпети для цитування</h3>` + d.aiCitationSnippets.map(s=>`<div class="snippet">"${esc(s)}"</div>`).join('');
+    overviewHtml += `<h3>Готові сніпети для цитування</h3>` + d.aiCitationSnippets.map(s => `<div class="snippet">"${esc(s)}"</div>`).join('');
   }
 
-  contentEl.innerHTML = legendHtml + detailsHtml + overviewHtml;
+  if (inspContent) inspContent.innerHTML = legendHtml + detailsHtml + overviewHtml;
 
-  // Привязываем события после рендера
+  // Прив'язка динамічної кнопки Pin
   setTimeout(() => {
-    const pinBtn = $('btnPinAction');
+    const pinBtn = $('btnPinDynamic');
     if (pinBtn) pinBtn.addEventListener('click', togglePin);
-
-    document.querySelectorAll('.legend-item').forEach(el => {
-      el.addEventListener('click', () => {
-        state.filter = el.dataset.type;
-        renderMap();
-        renderInspector();
-      });
-    });
-
-    document.querySelectorAll('.fingerprint.clickable').forEach(el => {
-      el.addEventListener('click', () => {
-        state.filter = el.dataset.hl;
-        switchTab('render');
-        renderMap();
-        renderInspector();
-      });
-    });
   }, 0);
+
+  // Обробка кліків по фільтрах
+  document.querySelectorAll('.legend-item').forEach(el => {
+    el.addEventListener('click', () => {
+      state.filter = el.dataset.type;
+      renderMap();
+      renderInspector();
+    });
+  });
+
+  // Обробка кліків по маркерах
+  document.querySelectorAll('.fingerprint.clickable').forEach(el => {
+    el.addEventListener('click', () => {
+      state.filter = el.dataset.hl;
+      switchTab('render');
+      renderMap();
+      renderInspector();
+    });
+  });
 }
 
 document.addEventListener('DOMContentLoaded', init);
