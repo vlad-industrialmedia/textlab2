@@ -1,7 +1,6 @@
-// /api/rewrite — рерайт фрагмента с защитой SEO-ключей и авто-откатом.
+// /api/rewrite — контекстний рерайт фрагмента.
 const { validateProtectedKeywords } = require('./_lib/segment');
 const { callLLM } = require('./_lib/llm');
-const { REWRITE_SYSTEM } = require('./_lib/prompts');
 const { setCors } = require('./_lib/auth');
 
 module.exports = async function handler(req, res) {
@@ -11,41 +10,45 @@ module.exports = async function handler(req, res) {
 
  try {
  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
- const { text, seoKeywords = [], goal = 'humanize', creds = {} } = body || {};
- if (!text || !text.trim()) return res.status(400).json({ error: 'Пустой текст' });
-
- // === ЗАХИСТ ВІД ПОМИЛКИ 413 ===
- if (text.length > 20000) return res.status(400).json({ error: 'Текст занадто довгий. Будь ласка, скоротіть його до 20 000 символів.' });
+ const { segmentText, prevContext = '', nextContext = '', seoKeywords = [], creds = {} } = body || {};
+ 
+ if (!segmentText || !segmentText.trim()) return res.status(400).json({ error: 'Пустой фрагмент' });
 
  const presentKeys = seoKeywords.filter(k =>
- k && text.toLowerCase().includes(k.trim().toLowerCase()));
+ k && segmentText.toLowerCase().includes(k.trim().toLowerCase()));
 
- const system = REWRITE_SYSTEM.replace('{seoKeywords}', JSON.stringify(presentKeys));
- const userMsg = `ЦЕЛЬ РЕРАЙТА: ${goal}\nКЛЮЧИ ДЛЯ ДОСЛОВНОГО СОХРАНЕНИЯ: ${JSON.stringify(presentKeys)}\n\nТЕКСТ:\n${text}`;
+ const system = `Ти — професійний редактор. Твоє завдання — покращити ЦІЛЬОВИЙ ФРАГМЕНТ тексту.
+ПРАВИЛА:
+1. Збережи початковий зміст і факти. Не вигадуй нові твердження.
+2. НЕ використовуй шаблонні початки речень (наприклад, "Це означає", "Варто зазначити", "Отже").
+3. Забезпеч плавний перехід від ПОПЕРЕДНЬОГО КОНТЕКСТУ до ЦІЛЬОВОГО, і від ЦІЛЬОВОГО до НАСТУПНОГО.
+4. Уникай "масла масляного" і тавтології.
+5. Збережи надані SEO-ключі дослівно.`;
+
+ const userMsg = `ПОПЕРЕДНІЙ КОНТЕКСТ: ${prevContext}\n\nЦІЛЬОВИЙ ФРАГМЕНТ (ПОКРАЩИТИ): ${segmentText}\n\nНАСТУПНИЙ КОНТЕКСТ: ${nextContext}\n\nSEO-КЛЮЧІ: ${JSON.stringify(presentKeys)}`;
 
  let rewritten = await callLLM(system, userMsg, { maxTokens: 2000, json: false }, creds);
 
+ // Перевірка ключів
  let check = validateProtectedKeywords(rewritten, presentKeys);
  let retried = false;
 
  if (!check.ok) {
  retried = true;
- const retryMsg = `${userMsg}\n\nВНИМАНИЕ: в предыдущей попытке пропали ключи: ${JSON.stringify(check.missing)}. Эти ключи ОБЯЗАНЫ присутствовать дословно.`;
+ const retryMsg = `${userMsg}\n\nУВАГА: у попередній спробі зникли ключі: ${JSON.stringify(check.missing)}. Вони ОБОВ'ЯЗКОВО мають бути в тексті дослівно.`;
  rewritten = await callLLM(system, retryMsg, { maxTokens: 2000, json: false }, creds);
  check = validateProtectedKeywords(rewritten, presentKeys);
  }
 
  if (!check.ok) {
  return res.status(200).json({
- rewritten: text,
+ rewrittenSegment: segmentText,
  applied: false,
- reason: `Рерайт отклонён: не удалось сохранить ключи ${check.missing.join(', ')}. Возвращён оригинал.`,
- missing: check.missing,
- retried,
+ reason: `Рерайт відхилений: не вдалося зберегти ключі ${check.missing.join(', ')}.`,
  });
  }
 
- return res.status(200).json({ rewritten, applied: true, retried });
+ return res.status(200).json({ rewrittenSegment: rewritten, applied: true, retried });
  } catch (e) {
  return res.status(500).json({ error: e.message });
  }
