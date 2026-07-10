@@ -1,4 +1,5 @@
-// app.js — Версия, адаптированная под структуру textlab2/index.html
+// app.js — Полностью адаптирован под textlab2/index.html
+// ID элементов взяты напрямую из твоего HTML: analyzeBtn, rewriteBtn, apiKeyInput, seoKeywords
 
 const $ = id => document.getElementById(id);
 const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -13,7 +14,7 @@ const state = {
   creds: {}
 };
 
-// === КОНФИГУРАЦИЯ МЕТРИК (ВСТРОЕНА, ЧТОБЫ НЕ ЗАВИСЕТЬ ОТ ДР. ФАЙЛОВ) ===
+// Встроенная конфигурация, чтобы не зависеть от внешних файлов
 const METRICS_CONFIG = {
   aiScore: { label: 'AI Score', unit: '%', direction: 'low', good: 35, warn: 60 },
   burstinessScore: { label: 'Ритм', unit: '', direction: 'high', good: 55, warn: 35 },
@@ -37,10 +38,10 @@ function init() {
   try {
     // 1. РЕДАКТОР
     const editor = $('editor');
-    if (!editor) throw new Error('Element #editor not found!');
+    if (!editor) throw new Error('Element #editor not found in HTML!');
     state.text = editor.innerText || '';
 
-    // 2. API КЛЮЧ (ID: apiKeyInput)
+    // 2. API КЛЮЧ (ID: apiKeyInput из твоего HTML)
     const apiKeyInput = $('apiKeyInput');
     if (apiKeyInput) {
       const savedKey = localStorage.getItem('groqApiKey');
@@ -55,9 +56,10 @@ function init() {
         state.creds.groqApiKey = apiKeyInput.value.trim();
         localStorage.setItem('groqApiKey', apiKeyInput.value.trim());
       });
+      console.log('✅ API Key bound');
     }
 
-    // 3. КНОПКА ПРОВЕРКИ (ID: checkKeyBtn)
+    // 3. КНОПКА ПРОВЕРКИ (ID: checkKeyBtn из твоего HTML)
     const checkBtn = $('checkKeyBtn');
     if (checkBtn) {
       checkBtn.addEventListener('click', async () => {
@@ -75,33 +77,45 @@ function init() {
       });
     }
 
-    // 4. ТАБЫ (Реализация через href как в твоем HTML)
+    // 4. ТАБЫ (Работаем с твоими <a class="tab-link" href="#view...">)
     const tabs = document.querySelectorAll('.tab-link');
     tabs.forEach(tab => {
       tab.addEventListener('click', (e) => {
         e.preventDefault();
-        // Убираем active у всех табов
+        // Убираем активный класс у всех ссылок
         tabs.forEach(t => t.classList.remove('active'));
-        // Добавляем active текущему
+        // Добавляем текущей
         tab.classList.add('active');
         
-        // Скрываем все view
+        // Скрываем все блоки view
         document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
-        // Показываем нужный view по href
+        
+        // Показываем нужный блок по href
         const targetId = tab.getAttribute('href').substring(1); // убираем #
         const targetView = $(targetId);
-        if (targetView) targetView.style.display = 'block';
+        if (targetView) {
+          targetView.style.display = 'block';
+          console.log(`Switched to ${targetId}`);
+        }
       });
     });
 
-    // 5. ГЛАВНЫЕ КНОПКИ (ID: analyzeBtn, rewriteBtn)
+    // 5. ГЛАВНЫЕ КНОПКИ (ID: analyzeBtn, rewriteBtn из твоего HTML)
     const analyzeBtn = $('analyzeBtn');
-    if (analyzeBtn) analyzeBtn.addEventListener('click', runAnalysis);
+    if (analyzeBtn) {
+      analyzeBtn.addEventListener('click', runAnalysis);
+      console.log('✅ Analyze Btn bound');
+    } else {
+      console.error('❌ #analyzeBtn NOT FOUND');
+    }
     
     const rewriteBtn = $('rewriteBtn');
-    if (rewriteBtn) rewriteBtn.addEventListener('click', runRewrite);
+    if (rewriteBtn) {
+      rewriteBtn.addEventListener('click', runRewrite);
+      console.log('✅ Rewrite Btn bound');
+    }
 
-    // 6. SEO КЛЮЧИ (ID: seoKeywords)
+    // 6. SEO КЛЮЧИ (ID: seoKeywords из твоего HTML)
     const seoInput = $('seoKeywords');
     if (seoInput) {
       seoInput.addEventListener('input', (e) => {
@@ -109,7 +123,7 @@ function init() {
       });
     }
 
-    // 7. ВСТАВКА ТЕКСТА (PASTE)
+    // 7. ВСТАВКА ТЕКСТА (PASTE) - Чистка HTML
     editor.addEventListener('paste', (e) => {
       e.preventDefault();
       const html = e.clipboardData.getData('text/html');
@@ -141,11 +155,11 @@ function init() {
 
     renderMap();
     renderInspector();
-    console.log('🏁 Init Finished');
+    console.log('🏁 Init Finished Successfully');
 
   } catch (err) {
     console.error('💥 INIT CRASH:', err);
-    alert('Critical Error: ' + err.message);
+    alert('Critical Error: ' + err.message + '. Check Console F12.');
   }
 }
 
