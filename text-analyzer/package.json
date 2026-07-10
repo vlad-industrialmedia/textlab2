@@ -1,0 +1,13 @@
+{
+  "name": "textlab",
+  "version": "3.0.0",
+  "description": "Платформа аудита качества текста для SEO, GEO и цитируемости AI-поиском",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "test": "node test/run.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

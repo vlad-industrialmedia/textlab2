@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Textlab — аудит якості тексту</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- LEFT -->
+  <aside class="sidebar">
+    <div class="brand"><h1>Textlab</h1><span class="ver">v4</span></div>
+    <p class="brand-sub">Аудит якості тексту для SEO, GEO та цитованості ШІ-пошуком.</p>
+
+    <div class="side-label">Провайдер ШІ</div>
+    <div class="field">
+      <select id="provider">
+        <option value="gemini">Google Gemini (безкоштовно)</option>
+        <option value="openrouter">OpenRouter (є безкоштовні)</option>
+        <option value="anthropic">Anthropic Claude (платно)</option>
+        <option value="groq">Groq (безкоштовно)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>API-ключ</label>
+      <input type="password" id="apiKey" placeholder="вставте ключ">
+      <div class="btn-row" style="margin-top:6px">
+        <button class="btn-ghost btn btn-sm" id="validateBtn">Перевірити ключ</button>
+        <span id="validateStatus" class="status"></span>
+      </div>
+      <div class="hint" id="keyHint"></div>
+    </div>
+    <div class="field">
+      <label>Модель</label>
+      <select id="modelSelect"></select>
+      <input type="text" id="modelCustom" placeholder="або впишіть свою" style="margin-top:6px;display:none">
+    </div>
+
+    <div class="side-label">Параметри тексту</div>
+    <div class="field">
+      <label>SEO-ключі (через кому)</label>
+      <input type="text" id="seoKeywords" placeholder="балістичний захист, NIJ IIIA">
+    </div>
+    <div class="field">
+      <label>Головний запит (seed)</label>
+      <input type="text" id="seedKeyword" placeholder="як обрати бронежилет">
+    </div>
+
+    <div class="side-label">Проєкт</div>
+    <div class="btn-row">
+      <button class="btn-ghost btn btn-sm" id="saveProjectBtn">Зберегти .json</button>
+      <button class="btn-ghost btn btn-sm" id="loadProjectBtn">Завантажити</button>
+      <input type="file" id="loadProjectInput" accept=".json" style="display:none">
+    </div>
+    <div class="btn-row" style="margin-top:6px">
+      <button class="btn-ghost btn btn-sm" id="exportHtmlBtn">Експорт .html звіту</button>
+    </div>
+
+    <div class="side-label">Історія перевірок</div>
+    <div id="history"></div>
+  </aside>
+
+  <!-- CENTER -->
+  <main class="main">
+    <div class="metrics" id="metrics"></div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="editor">Редактор</div>
+      <div class="tab" data-tab="render">Карта розмітки</div>
+      <div class="tab" data-tab="simulate">ШІ-пошук</div>
+    </div>
+
+    <section id="tab-editor">
+      <div class="editor-toolbar">
+        <button class="tb-btn" data-cmd="h1" title="Заголовок 1">H1</button>
+        <button class="tb-btn" data-cmd="h2" title="Заголовок 2">H2</button>
+        <button class="tb-btn" data-cmd="h3" title="Заголовок 3">H3</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" data-cmd="bold" title="Жирний"><b>B</b></button>
+        <button class="tb-btn" data-cmd="ul" title="Маркований список">• —</button>
+        <button class="tb-btn" data-cmd="ol" title="Нумерований список">1.</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" data-cmd="p" title="Звичайний абзац">¶</button>
+      </div>
+      <div class="rich-editor" id="editor" contenteditable="true" data-placeholder="Вставте текст для аналізу… Форматування (заголовки, списки) зберігається."></div>
+      <div class="btn-row" style="margin-top:12px">
+        <button class="btn" id="analyzeBtn">Проаналізувати</button>
+        <button class="btn-ghost btn" id="cancelBtn" style="display:none">Перервати</button>
+        <button class="btn-ghost btn" id="clearBtn">Очистити</button>
+        <span id="timer" class="status mono"></span>
+        <span id="statusMsg" class="status"></span>
+      </div>
+    </section>
+
+    <section id="tab-render" style="display:none">
+      <div class="filter-row" id="filterRow"></div>
+      <div class="legend" id="legend"></div>
+      <div class="doc-render" id="docRender"></div>
+    </section>
+
+    <section id="tab-simulate" style="display:none">
+      <div class="field">
+        <label>Пошуковий запит для симуляції</label>
+        <input type="text" id="simQuery" placeholder="що таке NIJ IIIA">
+      </div>
+      <button class="btn" id="simBtn">Перевірити у ШІ-пошуку</button>
+      <div id="simResult" style="margin-top:16px"></div>
+    </section>
+  </main>
+
+  <!-- RIGHT -->
+  <aside class="inspector" id="inspector">
+    <div class="insp-empty" id="inspEmpty">Проаналізуйте текст або клікніть на підсвічене речення, щоб побачити діагностику.</div>
+    <div id="inspContent"></div>
+  </aside>
+
+</div>
+
+<div id="tooltip" class="tooltip" style="display:none"></div>
+<div id="ratelimit" class="ratelimit" style="display:none"></div>
+<div id="selPop" class="sel-pop"><button id="pinBtn">📌 Закріпити</button></div>
+
+<script src="js/markdown.js"></script>
+<script src="js/metrics-meta.js"></script>
+<script src="js/models.js"></script>
+<script src="js/export.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
