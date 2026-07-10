@@ -5,49 +5,48 @@ const { REWRITE_SYSTEM } = require('./_lib/prompts');
 const { setCors } = require('./_lib/auth');
 
 module.exports = async function handler(req, res) {
-  setCors(res);
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Только POST' });
+ setCors(res);
+ if (req.method === 'OPTIONS') return res.status(200).end();
+ if (req.method !== 'POST') return res.status(405).json({ error: 'Только POST' });
 
-  try {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const { text, seoKeywords = [], goal = 'humanize', creds = {} } = body || {};
-    if (!text || !text.trim()) return res.status(400).json({ error: 'Пустой текст' });
+ try {
+ const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+ const { text, seoKeywords = [], goal = 'humanize', creds = {} } = body || {};
+ if (!text || !text.trim()) return res.status(400).json({ error: 'Пустой текст' });
 
-    // Определяем, какие ключи присутствуют в исходном фрагменте — их и защищаем
-    const presentKeys = seoKeywords.filter(k =>
-      k && text.toLowerCase().includes(k.trim().toLowerCase()));
+ // === ЗАХИСТ ВІД ПОМИЛКИ 413 ===
+ if (text.length > 20000) return res.status(400).json({ error: 'Текст занадто довгий. Будь ласка, скоротіть його до 20 000 символів.' });
 
-    const system = REWRITE_SYSTEM.replace('{seoKeywords}', JSON.stringify(presentKeys));
-    const userMsg = `ЦЕЛЬ РЕРАЙТА: ${goal}\nКЛЮЧИ ДЛЯ ДОСЛОВНОГО СОХРАНЕНИЯ: ${JSON.stringify(presentKeys)}\n\nТЕКСТ:\n${text}`;
+ const presentKeys = seoKeywords.filter(k =>
+ k && text.toLowerCase().includes(k.trim().toLowerCase()));
 
-    let rewritten = await callLLM(system, userMsg, { maxTokens: 2000, json: false }, creds);
+ const system = REWRITE_SYSTEM.replace('{seoKeywords}', JSON.stringify(presentKeys));
+ const userMsg = `ЦЕЛЬ РЕРАЙТА: ${goal}\nКЛЮЧИ ДЛЯ ДОСЛОВНОГО СОХРАНЕНИЯ: ${JSON.stringify(presentKeys)}\n\nТЕКСТ:\n${text}`;
 
-    // Валидация protected spans
-    let check = validateProtectedKeywords(rewritten, presentKeys);
-    let retried = false;
+ let rewritten = await callLLM(system, userMsg, { maxTokens: 2000, json: false }, creds);
 
-    if (!check.ok) {
-      // Один повторный запрос с усиленной инструкцией
-      retried = true;
-      const retryMsg = `${userMsg}\n\nВНИМАНИЕ: в предыдущей попытке пропали ключи: ${JSON.stringify(check.missing)}. Эти ключи ОБЯЗАНЫ присутствовать дословно.`;
-      rewritten = await callLLM(system, retryMsg, { maxTokens: 2000, json: false }, creds);
-      check = validateProtectedKeywords(rewritten, presentKeys);
-    }
+ let check = validateProtectedKeywords(rewritten, presentKeys);
+ let retried = false;
 
-    if (!check.ok) {
-      // Откат: возвращаем оригинал, честно сообщаем
-      return res.status(200).json({
-        rewritten: text,
-        applied: false,
-        reason: `Рерайт отклонён: не удалось сохранить ключи ${check.missing.join(', ')}. Возвращён оригинал.`,
-        missing: check.missing,
-        retried,
-      });
-    }
+ if (!check.ok) {
+ retried = true;
+ const retryMsg = `${userMsg}\n\nВНИМАНИЕ: в предыдущей попытке пропали ключи: ${JSON.stringify(check.missing)}. Эти ключи ОБЯЗАНЫ присутствовать дословно.`;
+ rewritten = await callLLM(system, retryMsg, { maxTokens: 2000, json: false }, creds);
+ check = validateProtectedKeywords(rewritten, presentKeys);
+ }
 
-    return res.status(200).json({ rewritten, applied: true, retried });
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
-  }
+ if (!check.ok) {
+ return res.status(200).json({
+ rewritten: text,
+ applied: false,
+ reason: `Рерайт отклонён: не удалось сохранить ключи ${check.missing.join(', ')}. Возвращён оригинал.`,
+ missing: check.missing,
+ retried,
+ });
+ }
+
+ return res.status(200).json({ rewritten, applied: true, retried });
+ } catch (e) {
+ return res.status(500).json({ error: e.message });
+ }
 };
